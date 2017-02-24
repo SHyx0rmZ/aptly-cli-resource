@@ -1,0 +1,48 @@
+#!/usr/bin/ruby
+
+require 'json'
+require 'aptly_cli'
+require 'commander'
+
+$stdout = STDERR
+
+input = JSON.load($stdin.read, nil, { symbolize_names: true, create_additions: false })
+
+config = { proto: 'http' }
+options = Commander::Command::Options.new
+
+%i{ server port username password debug name comment default_distribution default_component }.each do |option|
+  options.__send__("#{option}=", input[:source][option])
+end
+
+api_uri = URI(input[:source][:api_uri])
+
+options.server = api_uri.host
+options.port = api_uri.port
+
+repo = AptlyCli::AptlyRepo.new(config, options)
+
+response = repo.repo_package_query({
+  name: "#{input[:source][:component]}-#{input[:source][:distribution]}",
+  query: input[:source][:package],
+  with_deps: false,
+  format: 'details'
+})
+
+matches = response.parsed_response
+  .select{ |entry| entry['Package'].eql?(input[:source][:package]) }
+  .sort_by { |entry| entry['Filename'][/_.+_/] }
+  .reverse
+  .map{ |entry| { ref: entry['FilesHash'], filename: entry['Filename'] } }
+
+$stdout = STDOUT
+
+if input[:version].nil? || input[:version].empty?
+  puts matches.reverse.to_json
+else
+  if !matches.empty? && matches.first[:ref].eql?(input[:version][:ref])
+    puts [ matches.first ].to_json
+  else
+    puts matches.take_while{ |entry| entry[:ref] != input[:version][:ref]}.to_json
+  end
+end

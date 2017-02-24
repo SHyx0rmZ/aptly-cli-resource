@@ -1,0 +1,151 @@
+#!/usr/bin/ruby
+
+require 'json'
+require 'aptly_cli'
+require 'commander'
+
+$stdout = STDERR
+
+input = JSON.load($stdin.read, nil, { symbolize_names: true, create_additions: false })
+
+config = { proto: 'http' }
+options = Commander::Command::Options.new
+
+%i{ server port username password debug name comment default_distribution default_component }.each do |option|
+  options.__send__("#{option}=", input[:source][option])
+end
+
+if input[:params][:archive_file] && File.exist?("#{ARGV.first}/#{input[:params][:archive_file]}")
+  input[:params][:archive] = File.read("#{ARGV.first}/#{input[:params][:archive_file]}").strip
+end
+
+api_uri = URI(input[:source][:api_uri])
+
+options.server = api_uri.host
+options.port = api_uri.port
+
+repo = AptlyCli::AptlyRepo.new(config, options)
+
+response = repo.repo_show("#{input[:source][:component]}-#{input[:source][:distribution]}")
+
+unless (200...300) === response.code
+  response = repo.repo_create({
+    name: "#{input[:source][:component]}-#{input[:source][:distribution]}",
+    DefaultDistribution: input[:source][:distribution],
+    DefaultComponent: input[:source][:component]
+  })
+
+  unless (200...300) === response.code
+    warn(response.parsed_response.first['error'])
+
+    exit(1)
+  end
+end
+
+file = AptlyCli::AptlyFile.new(config, options)
+
+response = file.file_post({
+  file_uri: "/#{input[:source][:component]}-#{input[:source][:distribution]}",
+  package: "#{ARGV.first}/#{input[:params][:archive]}",
+  local_file: "#{ARGV.first}/#{input[:params][:archive]}"
+})
+
+unless (200...300) === response.code
+  warn(response.parsed_response.first['error'])
+
+  file.file_delete("/#{input[:source][:component]}-#{input[:source][:distribution]}/#{File.basename(input[:params][:archive])}")
+
+  exit(1)
+end
+
+response = repo.repo_upload({
+  name: "#{input[:source][:component]}-#{input[:source][:distribution]}",
+  dir: "#{input[:source][:component]}-#{input[:source][:distribution]}",
+  file: File.basename(input[:params][:archive]),
+  noremove: false,
+  forcereplace: false
+})
+
+unless (200...300) === response.code && response.parsed_response['FailedFiles'].empty?
+  warn(response.parsed_response.inspect)
+
+  file.file_delete("/#{input[:source][:component]}-#{input[:source][:distribution]}/#{File.basename(input[:params][:archive])}")
+
+  exit(1)
+end
+
+snapshot_name = "#{input[:source][:component]}-#{input[:source][:distribution]}-#{Time.now.getutc.to_i}"
+
+snapshot = AptlyCli::AptlySnapshot.new(config, options)
+
+response = snapshot.snapshot_create(
+  snapshot_name, #name
+  "#{input[:source][:component]}-#{input[:source][:distribution]}" #repo
+)
+
+unless (200...300) === response.code
+  warn(response.parsed_response.first['error'])
+
+  snapshot.snapshot_delete(snapshot_name)
+
+  exit(1)
+end
+
+publish = AptlyCli::AptlyPublish.new(config, options)
+
+response = publish.publish_list()
+
+unless response.parsed_response.any?{ |entry| entry['Distribution'].eql?(input[:source][:distribution]) && entry['Sources'].any?{ |entry_source| entry_source['Component'].eql?(input[:source][:component]) } }
+  response = publish.publish_repo(
+    snapshot_name,
+    {
+      sourcekind: 'snapshot',
+      prefix: input[:source][:component],
+      passphraseFile: input[:params][:gpg_passphrase_file],
+      batch: true
+    }
+  )
+
+  unless (200...300) === response.code
+    warn(response.parsed_response)
+
+    exit(1)
+  end
+end
+
+response = publish.publish_update({
+  snapshots: { snapshot_name => input[:source][:component] },
+  prefix: input[:source][:component],
+  distribution: input[:source][:distribution],
+  passphraseFile: input[:params][:gpg_passphrase_file],
+  batch: true
+})
+
+snapshot.snapshot_delete(snapshot_name)
+
+unless (200...300) === response.code
+  warn(response.parsed_response.first['error'])
+
+  exit(1)
+end
+
+response = repo.repo_package_query({
+  name: "#{input[:source][:component]}-#{input[:source][:distribution]}",
+  query: input[:source][:package],
+  with_deps: false,
+  format: 'details'
+})
+
+matches = response.parsed_response
+  .select{ |entry| entry['Filename'].eql?(File.basename(input[:params][:archive])) }
+  .map{ |entry| { ref: entry['FilesHash'], filename: entry['Filename'] } }
+
+if matches.empty?
+  warn('Could not determine new version, response was: ' + response.inspect)
+
+  exit(1)
+end
+
+$stdout = STDOUT
+
+puts({ version: matches.first, metadata: [ { name: :filename, value: matches.first['Filename'] } ] }.to_json)

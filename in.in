@@ -1,0 +1,13 @@
+{
+  "source": {
+    "component": "concourse",
+    "distribution": "jessie",
+    "api_uri": "http://127.0.0.1:8080/",
+    "repo_uri": "http://127.0.0.1/concourse/",
+    "package": "concourse"
+  },
+  "params": {
+    "archive": "concourse-web_current.deb",
+  },
+  "version": { "ref": "b748e251be15465c" }
+}

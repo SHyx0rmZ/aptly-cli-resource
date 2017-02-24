@@ -1,0 +1,13 @@
+{
+  "source": {
+    "component": "concourse",
+    "distribution": "jessie",
+    "api_uri": "http://127.0.0.1:8080/",
+    "repo_uri": "http://127.0.0.1/concourse/",
+    "package": "concourse"
+  },
+  "params": {
+    "archive_file": "filename",
+    "gpg_passphrase_file": "/root/aptly.pass"
+  }
+}

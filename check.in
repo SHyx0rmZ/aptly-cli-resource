@@ -1,0 +1,10 @@
+{
+  "source": {
+    "component": "concourse",
+    "distribution": "jessie",
+    "api_uri": "http://127.0.0.1:8080/",
+    "repo_uri": "http://127.0.0.1/concourse/",
+    "package": "concourse"
+  },
+  "version": { "ref": "6fa3c7f43a3cf613" }
+}
