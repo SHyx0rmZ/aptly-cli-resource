@@ -1,4 +1,4 @@
-# Capistrano Resource
+# aptly CLI Resource
 
 Enables you to transfer packages between your job and an [aptly](https://www.aptly.info/) repository in your [Concourse](http://concourse.ci/) pipeline.
 
