@@ -19,6 +19,13 @@ Enables you to transfer packages between your job and an [aptly](https://www.apt
 Resource configuration:
 
 ``` yaml
+resource_types:
+- name: aptly-cli
+  type: docker-image
+  source:
+    repository: shyxormz/aptly-cli-resource
+    tag: latest
+
 resources:
 - name: concourse-deb
   type: aptly-cli
